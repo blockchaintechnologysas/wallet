@@ -689,7 +689,7 @@ export default function App(): JSX.Element {
               className="h-10 w-auto"
             />
             <div>
-              <h1 className="text-2xl font-bold md:text-3xl">Scolcoin Web Wallet (MVP)</h1>
+              <h1 className="text-2xl font-bold md:text-3xl">Scolcoin Web Wallet</h1>
               <p className="text-sm text-slate-500">Non-custodial • EVM</p>
             </div>
           </div>
