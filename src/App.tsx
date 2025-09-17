@@ -444,7 +444,9 @@ export default function App(): JSX.Element {
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-        URL.revokeObjectURL(url);
+        window.setTimeout(() => {
+          URL.revokeObjectURL(url);
+        }, 100);
         notify(
           "Keystore guardado. Mantén la contraseña y el archivo en un lugar seguro"
         );
