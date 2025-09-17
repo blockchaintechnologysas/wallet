@@ -159,6 +159,7 @@ export default function App(): JSX.Element {
   const [mnemonic, setMnemonic] = useState<string>("");
   const [privKey, setPrivKey] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
+  const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [notice, setNotice] = useState<string>("");
   const [resultModal, setResultModal] = useState<
     | {
@@ -178,6 +179,7 @@ export default function App(): JSX.Element {
   );
 
   const noticeTimeout = useRef<number | null>(null);
+  const bodyOverflow = useRef<string | null>(null);
 
   const notify = useCallback((msg: string) => {
     setNotice(msg);
@@ -201,6 +203,17 @@ export default function App(): JSX.Element {
   const closeResultModal = useCallback(() => {
     setResultModal(null);
   }, []);
+
+  useEffect(() => {
+    if (isProcessing) {
+      bodyOverflow.current = document.body.style.overflow;
+      document.body.style.overflow = "hidden";
+      return () => {
+        document.body.style.overflow = bodyOverflow.current ?? "";
+      };
+    }
+    document.body.style.overflow = bodyOverflow.current ?? "";
+  }, [isProcessing]);
 
   useEffect(() => {
     return () => {
@@ -551,6 +564,7 @@ export default function App(): JSX.Element {
         return;
       }
       setBusy(true);
+      setIsProcessing(true);
       try {
         const signer = wallet.connect(provider);
         const tx = await signer.sendTransaction({ to: trimmedTo, value });
@@ -573,6 +587,7 @@ export default function App(): JSX.Element {
         openResultModal("error", message);
       } finally {
         setBusy(false);
+        setIsProcessing(false);
       }
     },
     [fetchTxs, notify, openResultModal, provider, wallet]
@@ -632,6 +647,8 @@ export default function App(): JSX.Element {
         openResultModal("error", "La dirección de destino no es válida.");
         return;
       }
+      setBusy(true);
+      setIsProcessing(true);
       try {
         const checksum = getAddress(trimmedAddr);
         const signer = wallet.connect(provider);
@@ -659,6 +676,9 @@ export default function App(): JSX.Element {
           error?.shortMessage || error?.message || "Error enviando token";
         notify(message);
         openResultModal("error", message);
+      } finally {
+        setBusy(false);
+        setIsProcessing(false);
       }
     },
     [fetchTxs, notify, openResultModal, provider, refreshTokenBalance, wallet]
@@ -696,6 +716,21 @@ export default function App(): JSX.Element {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
+      {isProcessing && (
+        <div
+          className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/70 px-4 text-white"
+          role="status"
+          aria-live="assertive"
+        >
+          <div className="h-12 w-12 animate-spin rounded-full border-4 border-white/30 border-t-white" />
+          <div className="text-lg font-semibold uppercase tracking-wide">
+            Procesando…
+          </div>
+          <p className="text-center text-sm text-slate-200">
+            Espera la confirmación de la red para completar tu transacción.
+          </p>
+        </div>
+      )}
       {resultModal && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
