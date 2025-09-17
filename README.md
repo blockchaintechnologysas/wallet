@@ -78,3 +78,154 @@ Para cambiar los valores por defecto de la red edita las constantes
 
 Este código se distribuye para fines educativos y demostrativos. Úsalo bajo tu
 propia responsabilidad.
+
+## Guía de despliegue en Linux con systemd y Nginx
+
+Si quieres publicar la billetera en un servidor Linux (por ejemplo Ubuntu
+22.04) detrás de Nginx, estos son los pasos recomendados.
+
+### 1. Preparar el servidor
+
+1. Actualiza los paquetes del sistema y las herramientas base:
+
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   sudo apt install -y git curl nginx
+   ```
+
+2. Instala Node.js 18 LTS (o superior). Con `nvm` puedes hacerlo así:
+
+   ```bash
+   curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+   source ~/.bashrc
+   nvm install 18
+   nvm use 18
+   ```
+
+   > También puedes instalar Node.js desde los paquetes oficiales o usando el
+   > repositorio de NodeSource si prefieres una instalación global para todos los
+   > usuarios.
+
+3. (Opcional) Crea un usuario dedicado para ejecutar la aplicación y evitar usar
+   `root`:
+
+   ```bash
+   sudo adduser --system --group --home /opt/geth-wallet wallet
+   ```
+
+### 2. Clonar el proyecto y construir la versión de producción
+
+```bash
+sudo mkdir -p /opt/geth-wallet
+sudo chown "$USER":"$USER" /opt/geth-wallet
+git clone https://github.com/tu-usuario/wallet.git /opt/geth-wallet
+cd /opt/geth-wallet
+npm install
+npm run build
+```
+
+El comando `npm run build` generará la carpeta `dist/` con los archivos estáticos
+que se servirán en producción.
+
+### 3. Crear el servicio systemd
+
+1. Abre el archivo del servicio:
+
+   ```bash
+   sudo nano /etc/systemd/system/geth-wallet.service
+   ```
+
+2. Copia el siguiente contenido (ajusta la ruta de `WorkingDirectory` si es
+   diferente):
+
+   ```ini
+   [Unit]
+   Description=Geth Wallet (Scolcoin) - Frontend
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=wallet
+   Group=wallet
+   WorkingDirectory=/opt/geth-wallet
+   Environment=NODE_ENV=production
+   ExecStart=/usr/bin/npm run preview -- --host 0.0.0.0 --port 4173
+   Restart=on-failure
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+   - Si no creaste el usuario `wallet`, reemplaza `User` y `Group` por el usuario
+     con el que vayas a ejecutar la aplicación (por ejemplo `www-data` o tu
+     usuario administrador).
+   - Asegúrate de que `/usr/bin/npm` sea la ruta correcta al ejecutable `npm` en
+     tu sistema (`which npm`).
+
+3. Recarga systemd y habilita el servicio para que inicie automáticamente con el
+   servidor:
+
+   ```bash
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now geth-wallet.service
+   sudo systemctl status geth-wallet.service
+   ```
+
+   El comando `status` debe mostrar el servicio activo escuchando en el puerto
+   4173.
+
+### 4. Configurar Nginx como proxy inverso
+
+1. Crea un bloque de servidor para tu dominio (por ejemplo
+   `wallet.scolcoin.com`):
+
+   ```bash
+   sudo nano /etc/nginx/sites-available/wallet.scolcoin.com
+   ```
+
+2. Añade la configuración:
+
+   ```nginx
+   server {
+       listen 80;
+       listen [::]:80;
+       server_name wallet.scolcoin.com;
+
+       location / {
+           proxy_pass http://127.0.0.1:4173;
+           proxy_http_version 1.1;
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+       }
+   }
+   ```
+
+3. Habilita el sitio y recarga Nginx:
+
+   ```bash
+   sudo ln -s /etc/nginx/sites-available/wallet.scolcoin.com /etc/nginx/sites-enabled/
+   sudo nginx -t
+   sudo systemctl reload nginx
+   ```
+
+4. (Recomendado) Configura HTTPS con Certbot o el cliente que prefieras:
+
+   ```bash
+   sudo apt install -y certbot python3-certbot-nginx
+   sudo certbot --nginx -d wallet.scolcoin.com
+   ```
+
+### 5. Verificar el despliegue
+
+- Abre `http://wallet.scolcoin.com` en tu navegador y comprueba que la billetera
+  carga correctamente.
+- Revisa los logs en caso de problemas:
+
+  ```bash
+  sudo journalctl -u geth-wallet.service -f
+  ```
+
+Con esto tendrás la aplicación levantada como un servicio de sistema y expuesta a
+Internet a través de Nginx.
