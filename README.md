@@ -217,7 +217,7 @@ que se servirán en producción.
    sudo certbot --nginx -d wallet.scolcoin.com
    ```
 
-### 5. Verificar el despliegue
+### 5. Verificar el despliegue 
 
 - Abre `http://wallet.scolcoin.com` en tu navegador y comprueba que la billetera
   carga correctamente.
