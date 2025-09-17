@@ -8,6 +8,7 @@ import React, {
 import {
   Contract,
   JsonRpcProvider,
+  HDNodeWallet,
   Wallet,
   formatEther,
   formatUnits,
@@ -81,6 +82,8 @@ type Token = {
 
 type TokenFormState = Record<string, { to: string; amount: string }>;
 
+type AnyWallet = Wallet | HDNodeWallet;
+
 type ExplorerTx = {
   hash: string;
   from?: { hash?: string } | string | null;
@@ -150,13 +153,21 @@ export default function App(): JSX.Element {
     link.setAttribute("type", "image/svg+xml");
   }, []);
 
-  const [wallet, setWallet] = useState<Wallet | null>(null);
+  const [wallet, setWallet] = useState<AnyWallet | null>(null);
   const [address, setAddress] = useState<string>("");
   const [balance, setBalance] = useState<string>("-");
   const [mnemonic, setMnemonic] = useState<string>("");
   const [privKey, setPrivKey] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
   const [notice, setNotice] = useState<string>("");
+  const [resultModal, setResultModal] = useState<
+    | {
+        status: "success" | "error";
+        title: string;
+        description: string;
+      }
+    | null
+  >(null);
 
   const [tokenAddr, setTokenAddr] = useState<string>("");
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -174,6 +185,21 @@ export default function App(): JSX.Element {
       window.clearTimeout(noticeTimeout.current);
     }
     noticeTimeout.current = window.setTimeout(() => setNotice(""), 3500);
+  }, []);
+
+  const openResultModal = useCallback(
+    (status: "success" | "error", description: string) => {
+      setResultModal({
+        status,
+        title: status === "success" ? "Confirmación exitosa" : "Confirmación fallida",
+        description,
+      });
+    },
+    []
+  );
+
+  const closeResultModal = useCallback(() => {
+    setResultModal(null);
   }, []);
 
   useEffect(() => {
@@ -218,7 +244,7 @@ export default function App(): JSX.Element {
   }, [provider, wallet, notify]);
 
   const refreshTokenBalance = useCallback(
-    async (addr: string, signer: Wallet | null) => {
+    async (addr: string, signer: AnyWallet | null) => {
       try {
         const checksum = getAddress(addr);
         const c = new Contract(checksum, ERC20_ABI, provider);
@@ -505,12 +531,14 @@ export default function App(): JSX.Element {
     async (to: string, amountEth: string) => {
       if (!provider || !wallet) {
         notify("Configura RPC y cartera");
+        openResultModal("error", "Configura el RPC y tu cartera antes de enviar.");
         return;
       }
       const trimmedTo = to.trim();
       const trimmedAmount = amountEth.trim();
       if (!isAddress(trimmedTo)) {
         notify("Dirección de destino inválida");
+        openResultModal("error", "La dirección de destino no es válida.");
         return;
       }
       let value;
@@ -519,6 +547,7 @@ export default function App(): JSX.Element {
       } catch (error) {
         console.error("Invalid native amount", error);
         notify("Cantidad inválida");
+        openResultModal("error", "La cantidad proporcionada no es válida.");
         return;
       }
       setBusy(true);
@@ -528,6 +557,10 @@ export default function App(): JSX.Element {
         notify(`Enviando… TX: ${tx.hash}`);
         await tx.wait();
         notify("Transacción confirmada");
+        openResultModal(
+          "success",
+          "La transacción se confirmó correctamente en la red."
+        );
         const addr = await signer.getAddress();
         const bal = await provider.getBalance(addr);
         setBalance(formatEther(bal));
@@ -535,12 +568,14 @@ export default function App(): JSX.Element {
         fetchTxs(addr);
       } catch (error: any) {
         console.error("Native transfer failed", error);
-        notify(error?.shortMessage || error?.message || "Error enviando SCOL");
+        const message = error?.shortMessage || error?.message || "Error enviando SCOL";
+        notify(message);
+        openResultModal("error", message);
       } finally {
         setBusy(false);
       }
     },
-    [fetchTxs, notify, provider, wallet]
+    [fetchTxs, notify, openResultModal, provider, wallet]
   );
 
   const addToken = useCallback(
@@ -586,6 +621,7 @@ export default function App(): JSX.Element {
     async (addr: string, to: string, amount: string) => {
       if (!provider || !wallet) {
         notify("Configura RPC y cartera");
+        openResultModal("error", "Configura el RPC y tu cartera antes de enviar.");
         return;
       }
       const trimmedAddr = addr.trim();
@@ -593,6 +629,7 @@ export default function App(): JSX.Element {
       const trimmedAmount = amount.trim();
       if (!isAddress(trimmedTo)) {
         notify("Dirección de destino inválida");
+        openResultModal("error", "La dirección de destino no es válida.");
         return;
       }
       try {
@@ -605,6 +642,10 @@ export default function App(): JSX.Element {
         notify(`Enviando… TX: ${tx.hash}`);
         await tx.wait();
         notify("Transferencia confirmada");
+        openResultModal(
+          "success",
+          "La transferencia del token se confirmó correctamente."
+        );
         await refreshTokenBalance(checksum, signer);
         const addrSigner = await signer.getAddress();
         fetchTxs(addrSigner);
@@ -614,10 +655,13 @@ export default function App(): JSX.Element {
         }));
       } catch (error: any) {
         console.error("Token transfer failed", error);
-        notify(error?.shortMessage || error?.message || "Error enviando token");
+        const message =
+          error?.shortMessage || error?.message || "Error enviando token";
+        notify(message);
+        openResultModal("error", message);
       }
     },
-    [fetchTxs, notify, provider, refreshTokenBalance, wallet]
+    [fetchTxs, notify, openResultModal, provider, refreshTokenBalance, wallet]
   );
 
   const addToMetaMask = useCallback(async () => {
@@ -652,6 +696,43 @@ export default function App(): JSX.Element {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
+      {resultModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+            <button
+              className="absolute right-3 top-3 text-2xl leading-none text-slate-400 hover:text-slate-600"
+              onClick={closeResultModal}
+              type="button"
+              aria-label="Cerrar"
+            >
+              &times;
+            </button>
+            <div
+              className={`text-lg font-semibold ${
+                resultModal.status === "success"
+                  ? "text-emerald-600"
+                  : "text-rose-600"
+              }`}
+            >
+              {resultModal.title}
+            </div>
+            <p className="mt-3 text-sm text-slate-600">{resultModal.description}</p>
+            <div className="mt-6 flex justify-end">
+              <button
+                className="rounded-lg bg-slate-900 px-4 py-2 text-white"
+                onClick={closeResultModal}
+                type="button"
+              >
+                Cerrar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
         <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
