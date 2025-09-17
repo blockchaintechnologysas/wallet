@@ -33,6 +33,7 @@ import { NativeTransferForm } from "./components/transfers/NativeTransferForm";
 import { TokenManager } from "./components/tokens/TokenManager";
 import { WalletActions } from "./components/wallet/WalletActions";
 import { WalletDetails } from "./components/wallet/WalletDetails";
+import { KeystorePasswordModal } from "./components/wallet/KeystorePasswordModal";
 
 const FAVICON_URL = "https://scolcoin.com/i/scolcoin-logo-light.svg";
 
@@ -57,6 +58,10 @@ export default function App(): JSX.Element {
   const [busy, setBusy] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [resultModal, setResultModal] = useState<ResultModalState | null>(null);
+  const [isKeystoreModalOpen, setIsKeystoreModalOpen] = useState<boolean>(false);
+  const [keystorePassword, setKeystorePassword] = useState<string>("");
+  const [keystorePasswordConfirm, setKeystorePasswordConfirm] = useState<string>("");
+  const [keystoreModalError, setKeystoreModalError] = useState<string | null>(null);
 
   const [tokenAddr, setTokenAddr] = useState<string>("");
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -66,7 +71,13 @@ export default function App(): JSX.Element {
     { to: "", amount: "" }
   );
 
-  useBodyScrollLock(isProcessing);
+  useBodyScrollLock(isProcessing || isKeystoreModalOpen);
+
+  const resetKeystoreModal = useCallback(() => {
+    setKeystorePassword("");
+    setKeystorePasswordConfirm("");
+    setKeystoreModalError(null);
+  }, []);
 
   const openResultModal = useCallback(
     (status: ResultModalState["status"], description: string) => {
@@ -309,15 +320,15 @@ export default function App(): JSX.Element {
   );
 
   const saveKeystore = useCallback(
-    async (password: string) => {
+    async (password: string): Promise<boolean> => {
       if (!wallet) {
         notify("No hay cartera");
-        return;
+        return false;
       }
       const trimmed = password.trim();
       if (trimmed.length < 8) {
         notify("Usa una contraseña de al menos 8 caracteres");
-        return;
+        return false;
       }
       setBusy(true);
       try {
@@ -345,9 +356,11 @@ export default function App(): JSX.Element {
           URL.revokeObjectURL(url);
         }, 100);
         notify("Keystore guardado. Mantén la contraseña y el archivo en un lugar seguro");
+        return true;
       } catch (error) {
         console.error("Failed to encrypt keystore", error);
         notify("No se pudo cifrar/guardar el keystore");
+        return false;
       } finally {
         setBusy(false);
       }
@@ -574,18 +587,51 @@ export default function App(): JSX.Element {
     }
   }, [loadKeystore, notify]);
 
+  const handleKeystorePasswordChange = useCallback((value: string) => {
+    setKeystorePassword(value);
+    setKeystoreModalError(null);
+  }, []);
+
+  const handleKeystorePasswordConfirmChange = useCallback((value: string) => {
+    setKeystorePasswordConfirm(value);
+    setKeystoreModalError(null);
+  }, []);
+
   const handleRequestSaveKeystore = useCallback(() => {
     if (!wallet) {
       notify("No hay cartera");
       return;
     }
-    const password = window.prompt(
-      "Crea una contraseña FUERTE para cifrar tu keystore"
-    );
-    if (password) {
-      void saveKeystore(password);
+    resetKeystoreModal();
+    setIsKeystoreModalOpen(true);
+  }, [notify, resetKeystoreModal, wallet]);
+
+  const handleCloseKeystoreModal = useCallback(() => {
+    if (busy) return;
+    setIsKeystoreModalOpen(false);
+    resetKeystoreModal();
+  }, [busy, resetKeystoreModal]);
+
+  const handleConfirmSaveKeystore = useCallback(async () => {
+    const trimmed = keystorePassword.trim();
+    const confirmTrimmed = keystorePasswordConfirm.trim();
+    if (trimmed.length < 8) {
+      setKeystoreModalError("Usa una contraseña de al menos 8 caracteres.");
+      return;
     }
-  }, [notify, saveKeystore, wallet]);
+    if (trimmed !== confirmTrimmed) {
+      setKeystoreModalError("Las contraseñas no coinciden.");
+      return;
+    }
+    setKeystoreModalError(null);
+    const success = await saveKeystore(trimmed);
+    if (success) {
+      setIsKeystoreModalOpen(false);
+      resetKeystoreModal();
+    } else {
+      setKeystoreModalError("No se pudo guardar el keystore. Inténtalo nuevamente.");
+    }
+  }, [keystorePassword, keystorePasswordConfirm, resetKeystoreModal, saveKeystore]);
 
   const handleNativeFormChange = useCallback((form: { to: string; amount: string }) => {
     setNativeForm(form);
@@ -622,6 +668,17 @@ export default function App(): JSX.Element {
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <ProcessingOverlay visible={isProcessing} />
       <ResultModal result={resultModal} onClose={closeResultModal} />
+      <KeystorePasswordModal
+        open={isKeystoreModalOpen}
+        password={keystorePassword}
+        confirmPassword={keystorePasswordConfirm}
+        error={keystoreModalError}
+        busy={busy}
+        onPasswordChange={handleKeystorePasswordChange}
+        onConfirmPasswordChange={handleKeystorePasswordConfirmChange}
+        onClose={handleCloseKeystoreModal}
+        onSubmit={handleConfirmSaveKeystore}
+      />
 
       <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
         <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
