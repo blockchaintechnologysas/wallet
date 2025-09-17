@@ -1,14 +1,7 @@
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Contract,
   JsonRpcProvider,
-  HDNodeWallet,
   Wallet,
   formatEther,
   formatUnits,
@@ -18,140 +11,43 @@ import {
   parseUnits,
 } from "ethers";
 
-const DEFAULT_RPCS = [
-  "https://mainnet-rpc.scolcoin.com",
-  "https://mainrpc.scolcoin.com",
-  "https://seed.scolcoin.com",
-];
+import { ERC20_ABI } from "./abi/erc20";
+import { DEFAULT_CHAIN, DEFAULT_RPCS } from "./constants/network";
+import { useBodyScrollLock } from "./hooks/useBodyScrollLock";
+import { useFavicon } from "./hooks/useFavicon";
+import { useNotice } from "./hooks/useNotice";
+import type {
+  AnyWallet,
+  ExplorerTx,
+  ResultModalState,
+  Token,
+  TokenFormState,
+} from "./types";
+import { Section } from "./components/common/Section";
+import { NoticeBanner } from "./components/feedback/NoticeBanner";
+import { ProcessingOverlay } from "./components/feedback/ProcessingOverlay";
+import { ResultModal } from "./components/feedback/ResultModal";
+import { TransactionHistory } from "./components/history/TransactionHistory";
+import { NetworkSettings } from "./components/network/NetworkSettings";
+import { NativeTransferForm } from "./components/transfers/NativeTransferForm";
+import { TokenManager } from "./components/tokens/TokenManager";
+import { WalletActions } from "./components/wallet/WalletActions";
+import { WalletDetails } from "./components/wallet/WalletDetails";
 
-const DEFAULT_CHAIN = {
-  chainId: 65450,
-  chainHex: "0xffaa",
-  name: "Scolcoin POA",
-  explorer: "https://explorador.scolcoin.com",
-  currency: { name: "Scolcoin", symbol: "SCOL", decimals: 18 },
-} as const;
-
-const ERC20_ABI = [
-  {
-    inputs: [{ name: "account", type: "address" }],
-    name: "balanceOf",
-    outputs: [{ type: "uint256" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "decimals",
-    outputs: [{ type: "uint8" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "symbol",
-    outputs: [{ type: "string" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [],
-    name: "name",
-    outputs: [{ type: "string" }],
-    stateMutability: "view",
-    type: "function",
-  },
-  {
-    inputs: [
-      { name: "to", type: "address" },
-      { name: "value", type: "uint256" },
-    ],
-    name: "transfer",
-    outputs: [{ type: "bool" }],
-    stateMutability: "nonpayable",
-    type: "function",
-  },
-] as const;
-
-type Token = {
-  address: string;
-  symbol: string;
-  decimals: number;
-  balance: string;
-};
-
-type TokenFormState = Record<string, { to: string; amount: string }>;
-
-type AnyWallet = Wallet | HDNodeWallet;
-
-type ExplorerTx = {
-  hash: string;
-  from?: { hash?: string } | string | null;
-  to?: { hash?: string } | string | null;
-  method?: string | null;
-  type?: string | null;
-  block_number?: number;
-  timestamp?: number;
-};
-
-declare global {
-  interface Window {
-    ethereum?: {
-      request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
-    };
-  }
-}
-
-function Address({ value }: { value: string | null | undefined }) {
-  if (!value) return null;
-  const normalized = value.toString();
-  return (
-    <span className="font-mono text-sm break-all" title={normalized}>
-      {normalized.slice(0, 8)}…{normalized.slice(-6)}
-    </span>
-  );
-}
-
-function Section({
-  title,
-  children,
-  right,
-}: {
-  title: string;
-  children: React.ReactNode;
-  right?: React.ReactNode;
-}) {
-  return (
-    <section className="rounded-2xl shadow p-4 bg-white border border-slate-200">
-      <div className="flex items-center justify-between mb-3">
-        <h2 className="text-lg font-semibold">{title}</h2>
-        {right}
-      </div>
-      {children}
-    </section>
-  );
-}
+const FAVICON_URL = "https://scolcoin.com/i/scolcoin-logo-light.svg";
 
 export default function App(): JSX.Element {
   const [rpcUrl, setRpcUrl] = useState<string>(DEFAULT_RPCS[0]);
   const [explorer, setExplorer] = useState<string>(DEFAULT_CHAIN.explorer);
   const [chainName, setChainName] = useState<string>(DEFAULT_CHAIN.name);
   const [chainHex, setChainHex] = useState<string>(DEFAULT_CHAIN.chainHex);
-  const [currency] = useState(DEFAULT_CHAIN.currency);
+  const currency = DEFAULT_CHAIN.currency;
 
   const provider = useMemo(() => new JsonRpcProvider(rpcUrl), [rpcUrl]);
 
-  useEffect(() => {
-    const href = "https://scolcoin.com/i/scolcoin-logo-light.svg";
-    let link = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
-    if (!link) {
-      link = document.createElement("link");
-      link.setAttribute("rel", "icon");
-      document.head.appendChild(link);
-    }
-    link.setAttribute("href", href);
-    link.setAttribute("type", "image/svg+xml");
-  }, []);
+  useFavicon(FAVICON_URL);
+
+  const { notice, notify, clear } = useNotice();
 
   const [wallet, setWallet] = useState<AnyWallet | null>(null);
   const [address, setAddress] = useState<string>("");
@@ -160,15 +56,7 @@ export default function App(): JSX.Element {
   const [privKey, setPrivKey] = useState<string>("");
   const [busy, setBusy] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const [notice, setNotice] = useState<string>("");
-  const [resultModal, setResultModal] = useState<
-    | {
-        status: "success" | "error";
-        title: string;
-        description: string;
-      }
-    | null
-  >(null);
+  const [resultModal, setResultModal] = useState<ResultModalState | null>(null);
 
   const [tokenAddr, setTokenAddr] = useState<string>("");
   const [tokens, setTokens] = useState<Token[]>([]);
@@ -178,19 +66,10 @@ export default function App(): JSX.Element {
     { to: "", amount: "" }
   );
 
-  const noticeTimeout = useRef<number | null>(null);
-  const bodyOverflow = useRef<string | null>(null);
-
-  const notify = useCallback((msg: string) => {
-    setNotice(msg);
-    if (noticeTimeout.current) {
-      window.clearTimeout(noticeTimeout.current);
-    }
-    noticeTimeout.current = window.setTimeout(() => setNotice(""), 3500);
-  }, []);
+  useBodyScrollLock(isProcessing);
 
   const openResultModal = useCallback(
-    (status: "success" | "error", description: string) => {
+    (status: ResultModalState["status"], description: string) => {
       setResultModal({
         status,
         title: status === "success" ? "Confirmación exitosa" : "Confirmación fallida",
@@ -202,25 +81,6 @@ export default function App(): JSX.Element {
 
   const closeResultModal = useCallback(() => {
     setResultModal(null);
-  }, []);
-
-  useEffect(() => {
-    if (isProcessing) {
-      bodyOverflow.current = document.body.style.overflow;
-      document.body.style.overflow = "hidden";
-      return () => {
-        document.body.style.overflow = bodyOverflow.current ?? "";
-      };
-    }
-    document.body.style.overflow = bodyOverflow.current ?? "";
-  }, [isProcessing]);
-
-  useEffect(() => {
-    return () => {
-      if (noticeTimeout.current) {
-        window.clearTimeout(noticeTimeout.current);
-      }
-    };
   }, []);
 
   useEffect(() => {
@@ -254,19 +114,19 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [provider, wallet, notify]);
+  }, [notify, provider, wallet]);
 
   const refreshTokenBalance = useCallback(
     async (addr: string, signer: AnyWallet | null) => {
       try {
         const checksum = getAddress(addr);
-        const c = new Contract(checksum, ERC20_ABI, provider);
+        const contract = new Contract(checksum, ERC20_ABI, provider);
         const account = signer ? await signer.getAddress() : address;
         if (!account) return;
         const [bal, decimalsRaw, symbol] = await Promise.all([
-          c.balanceOf(account),
-          c.decimals(),
-          c.symbol(),
+          contract.balanceOf(account),
+          contract.decimals(),
+          contract.symbol(),
         ]);
         const decimals = Number(decimalsRaw);
         setTokens((prev) =>
@@ -308,7 +168,7 @@ export default function App(): JSX.Element {
     return () => {
       cancelled = true;
     };
-  }, [tokens, wallet, provider, refreshTokenBalance]);
+  }, [provider, refreshTokenBalance, tokens, wallet]);
 
   const fetchTxs = useCallback(
     async (addr: string) => {
@@ -318,9 +178,7 @@ export default function App(): JSX.Element {
       }
       try {
         const base = explorer.replace(/\/$/, "");
-        const res = await fetch(
-          `${base}/api/v2/addresses/${addr}/transactions?items_count=20`
-        );
+        const res = await fetch(`${base}/api/v2/addresses/${addr}/transactions?items_count=20`);
         if (!res.ok) {
           throw new Error(`Explorer responded with ${res.status}`);
         }
@@ -441,7 +299,7 @@ export default function App(): JSX.Element {
         setAddress(w.address);
         setMnemonic("");
         setPrivKey(w.privateKey);
-        notify("Cartera importada desde clave privada");
+        notify("Cartera importada por clave privada");
       } catch (error) {
         console.error("Invalid private key", error);
         notify("Clave privada inválida");
@@ -486,9 +344,7 @@ export default function App(): JSX.Element {
         window.setTimeout(() => {
           URL.revokeObjectURL(url);
         }, 100);
-        notify(
-          "Keystore guardado. Mantén la contraseña y el archivo en un lugar seguro"
-        );
+        notify("Keystore guardado. Mantén la contraseña y el archivo en un lugar seguro");
       } catch (error) {
         console.error("Failed to encrypt keystore", error);
         notify("No se pudo cifrar/guardar el keystore");
@@ -571,10 +427,7 @@ export default function App(): JSX.Element {
         notify(`Enviando… TX: ${tx.hash}`);
         await tx.wait();
         notify("Transacción confirmada");
-        openResultModal(
-          "success",
-          "La transacción se confirmó correctamente en la red."
-        );
+        openResultModal("success", "La transacción se confirmó correctamente en la red.");
         const addr = await signer.getAddress();
         const bal = await provider.getBalance(addr);
         setBalance(formatEther(bal));
@@ -606,8 +459,8 @@ export default function App(): JSX.Element {
       }
       const checksum = getAddress(trimmed);
       try {
-        const c = new Contract(checksum, ERC20_ABI, provider);
-        const [symbol, decimals] = await Promise.all([c.symbol(), c.decimals()]);
+        const contract = new Contract(checksum, ERC20_ABI, provider);
+        const [symbol, decimals] = await Promise.all([contract.symbol(), contract.decimals()]);
         const token: Token = {
           address: checksum,
           symbol,
@@ -615,9 +468,7 @@ export default function App(): JSX.Element {
           balance: "0",
         };
         setTokens((prev) => {
-          const exists = prev.some(
-            (p) => p.address.toLowerCase() === checksum.toLowerCase()
-          );
+          const exists = prev.some((p) => p.address.toLowerCase() === checksum.toLowerCase());
           return exists ? prev : [...prev, token];
         });
         const signer = wallet ? wallet.connect(provider) : null;
@@ -652,10 +503,10 @@ export default function App(): JSX.Element {
       try {
         const checksum = getAddress(trimmedAddr);
         const signer = wallet.connect(provider);
-        const c = new Contract(checksum, ERC20_ABI, signer);
-        const decimals = Number(await c.decimals());
+        const contract = new Contract(checksum, ERC20_ABI, signer);
+        const decimals = Number(await contract.decimals());
         const value = parseUnits(trimmedAmount, decimals);
-        const tx = await c.transfer(trimmedTo, value);
+        const tx = await contract.transfer(trimmedTo, value);
         notify(`Enviando… TX: ${tx.hash}`);
         await tx.wait();
         notify("Transferencia confirmada");
@@ -672,8 +523,7 @@ export default function App(): JSX.Element {
         }));
       } catch (error: any) {
         console.error("Token transfer failed", error);
-        const message =
-          error?.shortMessage || error?.message || "Error enviando token";
+        const message = error?.shortMessage || error?.message || "Error enviando token";
         notify(message);
         openResultModal("error", message);
       } finally {
@@ -692,9 +542,7 @@ export default function App(): JSX.Element {
     try {
       const rpcList = rpcUrl ? [rpcUrl] : [];
       const explorerList = explorer ? [explorer] : [];
-      const normalizedChainId = chainHex.startsWith("0x")
-        ? chainHex
-        : `0x${Number(chainHex).toString(16)}`;
+      const normalizedChainId = chainHex.startsWith("0x") ? chainHex : `0x${Number(chainHex).toString(16)}`;
       await window.ethereum.request({
         method: "wallet_addEthereumChain",
         params: [
@@ -714,61 +562,68 @@ export default function App(): JSX.Element {
     }
   }, [chainHex, chainName, currency, explorer, notify, rpcUrl]);
 
+  const handleRequestLoadStoredKeystore = useCallback(() => {
+    const ks = localStorage.getItem("scol_keystore_json");
+    if (!ks) {
+      notify("No hay keystore en el navegador");
+      return;
+    }
+    const password = window.prompt("Contraseña del keystore") || "";
+    if (password) {
+      void loadKeystore(ks, password);
+    }
+  }, [loadKeystore, notify]);
+
+  const handleRequestSaveKeystore = useCallback(() => {
+    if (!wallet) {
+      notify("No hay cartera");
+      return;
+    }
+    const password = window.prompt(
+      "Crea una contraseña FUERTE para cifrar tu keystore"
+    );
+    if (password) {
+      void saveKeystore(password);
+    }
+  }, [notify, saveKeystore, wallet]);
+
+  const handleNativeFormChange = useCallback((form: { to: string; amount: string }) => {
+    setNativeForm(form);
+  }, []);
+
+  const handleSendNative = useCallback(() => {
+    void sendNative(nativeForm.to, nativeForm.amount);
+  }, [nativeForm.amount, nativeForm.to, sendNative]);
+
+  const handleTokenFormChange = useCallback(
+    (tokenAddress: string, form: { to: string; amount: string }) => {
+      setTokenForms((prev) => ({
+        ...prev,
+        [tokenAddress]: form,
+      }));
+    },
+    []
+  );
+
+  const handleSendToken = useCallback(
+    (tokenAddress: string, form: { to: string; amount: string }) => {
+      void sendToken(tokenAddress, form.to, form.amount);
+    },
+    [sendToken]
+  );
+
+  const handleAddToken = useCallback(() => {
+    if (tokenAddr) {
+      void addToken(tokenAddr);
+    }
+  }, [addToken, tokenAddr]);
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
-      {isProcessing && (
-        <div
-          className="fixed inset-0 z-40 flex flex-col items-center justify-center gap-4 bg-black/70 px-4 text-white"
-          role="status"
-          aria-live="assertive"
-        >
-          <div className="h-12 w-12 animate-spin rounded-full border-4 border-white/30 border-t-white" />
-          <div className="text-lg font-semibold uppercase tracking-wide">
-            Procesando…
-          </div>
-          <p className="text-center text-sm text-slate-200">
-            Espera la confirmación de la red para completar tu transacción.
-          </p>
-        </div>
-      )}
-      {resultModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
-          role="dialog"
-          aria-modal="true"
-        >
-          <div className="relative w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
-            <button
-              className="absolute right-3 top-3 text-2xl leading-none text-slate-400 hover:text-slate-600"
-              onClick={closeResultModal}
-              type="button"
-              aria-label="Cerrar"
-            >
-              &times;
-            </button>
-            <div
-              className={`text-lg font-semibold ${
-                resultModal.status === "success"
-                  ? "text-emerald-600"
-                  : "text-rose-600"
-              }`}
-            >
-              {resultModal.title}
-            </div>
-            <p className="mt-3 text-sm text-slate-600">{resultModal.description}</p>
-            <div className="mt-6 flex justify-end">
-              <button
-                className="rounded-lg bg-slate-900 px-4 py-2 text-white"
-                onClick={closeResultModal}
-                type="button"
-              >
-                Cerrar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-      <div className="max-w-6xl mx-auto p-4 md:p-8 space-y-6">
+      <ProcessingOverlay visible={isProcessing} />
+      <ResultModal result={resultModal} onClose={closeResultModal} />
+
+      <div className="mx-auto max-w-6xl space-y-6 p-4 md:p-8">
         <header className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div className="flex items-center gap-3">
             <img
@@ -777,365 +632,70 @@ export default function App(): JSX.Element {
               className="h-10 w-auto"
             />
             <div>
-              <h1 className="text-2xl md:text-3xl font-bold">
-                Scolcoin Web Wallet (MVP)
-              </h1>
+              <h1 className="text-2xl font-bold md:text-3xl">Scolcoin Web Wallet (MVP)</h1>
               <p className="text-sm text-slate-500">Non-custodial • EVM</p>
             </div>
           </div>
           <div className="text-sm opacity-70">Versión local para usuarios finales</div>
         </header>
 
-        {notice && (
-          <div className="rounded-xl p-3 bg-emerald-50 border border-emerald-200 text-emerald-800">
-            {notice}
-          </div>
-        )}
+        <NoticeBanner message={notice} onClose={clear} />
 
-        <Section
-          title="Configuración de Red"
-          right={
-            <button
-              className="px-3 py-2 rounded-xl bg-black text-white text-sm"
-              onClick={addToMetaMask}
-              type="button"
-            >
-              Añadir a MetaMask
-            </button>
-          }
-        >
-          <div className="grid md:grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="block text-sm">RPC público (selección)</label>
-              <select
-                className="w-full p-2 rounded-lg border"
-                value={rpcUrl}
-                onChange={(e) => setRpcUrl(e.target.value)}
-              >
-                {DEFAULT_RPCS.map((u) => (
-                  <option key={u} value={u}>
-                    {u}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-slate-500">
-                Cambia entre los RPC por defecto de Scolcoin.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <label className="block text-sm">Explorador (Blockscout)</label>
-              <input
-                className="w-full p-2 rounded-lg border"
-                value={explorer}
-                onChange={(e) => setExplorer(e.target.value)}
-              />
-              <p className="text-xs text-slate-500">
-                Se usa para historial de transacciones.
-              </p>
-            </div>
-            <div className="space-y-2">
-              <label className="block text-sm">Nombre de red</label>
-              <input
-                className="w-full p-2 rounded-lg border"
-                value={chainName}
-                onChange={(e) => setChainName(e.target.value)}
-              />
-            </div>
-            <div className="space-y-2">
-              <label className="block text-sm">Chain ID (hex)</label>
-              <input
-                className="w-full p-2 rounded-lg border"
-                value={chainHex}
-                onChange={(e) => setChainHex(e.target.value)}
-              />
-              <p className="text-xs text-slate-500">
-                Sugerido para Scolcoin: 0xffaa (65450)
-              </p>
-            </div>
-          </div>
-        </Section>
+        <NetworkSettings
+          rpcUrl={rpcUrl}
+          onRpcUrlChange={setRpcUrl}
+          explorer={explorer}
+          onExplorerChange={setExplorer}
+          chainName={chainName}
+          onChainNameChange={setChainName}
+          chainHex={chainHex}
+          onChainHexChange={setChainHex}
+          onAddToMetaMask={addToMetaMask}
+        />
 
         <Section title="Cartera">
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <div className="flex flex-wrap gap-2">
-                <button
-                  className="px-3 py-2 rounded-xl bg-indigo-600 text-white"
-                  onClick={createWallet}
-                  type="button"
-                  disabled={busy}
-                >
-                  Crear nueva
-                </button>
-                <button
-                  className="px-3 py-2 rounded-xl bg-slate-900 text-white"
-                  onClick={() => {
-                    const ks = localStorage.getItem("scol_keystore_json");
-                    if (!ks) {
-                      notify("No hay keystore en el navegador");
-                      return;
-                    }
-                    const password = window.prompt("Contraseña del keystore") || "";
-                    if (password) {
-                      void loadKeystore(ks, password);
-                    }
-                  }}
-                  type="button"
-                  disabled={busy}
-                >
-                  Cargar keystore guardado
-                </button>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm">Importar por mnemónico</label>
-                <textarea
-                  className="w-full p-2 rounded-lg border"
-                  rows={2}
-                  placeholder="palabra1 palabra2 …"
-                  onBlur={(e) => {
-                    const value = e.currentTarget.value;
-                    if (value) {
-                      importFromMnemonic(value);
-                    }
-                  }}
-                />
-                <p className="text-xs text-slate-500">
-                  Se procesa localmente. Nunca compartas tu frase secreta.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-sm">Importar por clave privada</label>
-                <input
-                  className="w-full p-2 rounded-lg border"
-                  placeholder="0x… o sin 0x"
-                  onKeyDown={(e) => {
-                    const el = e.currentTarget;
-                    if (e.key === "Enter" && el.value) {
-                      importFromPrivateKey(el.value);
-                    }
-                  }}
-                />
-                <p className="text-xs text-slate-500">
-                  Asegúrate de usar un entorno confiable antes de pegar tu clave.
-                </p>
-              </div>
-
-              {wallet && (
-                <div className="space-y-3">
-                  {address && (
-                    <div className="flex flex-col items-center">
-                      <div className="bg-white p-3 rounded-xl border">
-                        <img
-                          src={`https://api.qrserver.com/v1/create-qr-code/?size=160x160&data=${encodeURIComponent(
-                            address
-                          )}`}
-                          width={160}
-                          height={160}
-                          alt="QR"
-                        />
-                      </div>
-                      <div className="text-xs text-slate-500 mt-2">QR de tu dirección</div>
-                    </div>
-                  )}
-
-                  <div className="text-sm flex flex-wrap items-center gap-2">
-                    <span>
-                      Dirección: <Address value={address} />
-                    </span>
-                    <button
-                      className="px-2 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-xs"
-                      onClick={() => copyToClipboard(address, "Dirección")}
-                      type="button"
-                    >
-                      Copiar dirección
-                    </button>
-                  </div>
-
-                  <div className="text-sm">
-                    Saldo: <span className="font-mono">{balance}</span> {currency.symbol}
-                  </div>
-
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div className="text-sm">Frase (guárdala offline):</div>
-                      <button
-                        className="px-2 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-xs disabled:opacity-50"
-                        disabled={!mnemonic}
-                        onClick={() => copyToClipboard(mnemonic, "Frase de recuperación")}
-                        type="button"
-                      >
-                        Copiar frase
-                      </button>
-                    </div>
-                    <div className="p-2 bg-amber-50 border rounded font-mono text-sm break-words">
-                      {mnemonic || "(oculta/no disponible si importaste por clave o keystore)"}
-                    </div>
-
-                    <div className="flex items-center justify-between mt-2">
-                      <div className="text-sm text-rose-700">
-                        Clave privada (¡no la compartas!)
-                      </div>
-                      <button
-                        className="px-2 py-1 rounded-lg bg-slate-200 hover:bg-slate-300 text-xs disabled:opacity-50"
-                        disabled={!privKey}
-                        onClick={() => copyToClipboard(privKey, "Clave privada")}
-                        type="button"
-                      >
-                        Copiar clave
-                      </button>
-                    </div>
-                    <div className="p-2 bg-rose-50 border rounded font-mono text-sm break-words">
-                      {privKey ? privKey : "(oculta/no disponible)"}
-                    </div>
-
-                    <div>
-                      <button
-                        className="px-3 py-2 rounded-xl bg-emerald-600 text-white disabled:opacity-50"
-                        disabled={!wallet || busy}
-                        onClick={() => {
-                          const password = window.prompt(
-                            "Crea una contraseña FUERTE para cifrar tu keystore"
-                          );
-                          if (password) {
-                            void saveKeystore(password);
-                          }
-                        }}
-                        type="button"
-                      >
-                        Guardar/Descargar Keystore JSON
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <div className="space-y-3">
-              <h3 className="font-semibold">Enviar {currency.symbol}</h3>
-              <input
-                className="w-full p-2 rounded-lg border"
-                placeholder="0x destinatario"
-                value={nativeForm.to}
-                onChange={(e) =>
-                  setNativeForm((prev) => ({ ...prev, to: e.target.value }))
-                }
+          <div className="grid gap-6 md:grid-cols-2">
+            <div className="space-y-6">
+              <WalletActions
+                busy={busy}
+                onCreateWallet={createWallet}
+                onRequestLoadStoredKeystore={handleRequestLoadStoredKeystore}
+                onImportMnemonic={importFromMnemonic}
+                onImportPrivateKey={importFromPrivateKey}
               />
-              <input
-                className="w-full p-2 rounded-lg border"
-                placeholder="Cantidad (ej. 0.5)"
-                value={nativeForm.amount}
-                onChange={(e) =>
-                  setNativeForm((prev) => ({ ...prev, amount: e.target.value }))
-                }
+              <WalletDetails
+                address={address}
+                balance={balance}
+                currencySymbol={currency.symbol}
+                mnemonic={mnemonic}
+                privKey={privKey}
+                busy={busy}
+                onCopy={copyToClipboard}
+                onSaveKeystore={handleRequestSaveKeystore}
               />
-              <button
-                className="px-3 py-2 rounded-xl bg-blue-600 text-white disabled:opacity-50"
-                disabled={!wallet || !provider || busy}
-                onClick={() => sendNative(nativeForm.to, nativeForm.amount)}
-                type="button"
-              >
-                Enviar
-              </button>
             </div>
+            <NativeTransferForm
+              currencySymbol={currency.symbol}
+              form={nativeForm}
+              onFormChange={handleNativeFormChange}
+              onSubmit={handleSendNative}
+              disabled={!wallet || !provider || busy}
+            />
           </div>
         </Section>
 
         <Section title="Tokens (ERC-20)">
-          <div className="grid md:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <div className="flex gap-2">
-                <input
-                  className="flex-1 p-2 rounded-lg border"
-                  placeholder="Dirección del token"
-                  value={tokenAddr}
-                  onChange={(e) => setTokenAddr(e.target.value)}
-                />
-                <button
-                  className="px-3 py-2 rounded-xl bg-slate-900 text-white"
-                  onClick={() => tokenAddr && addToken(tokenAddr)}
-                  type="button"
-                  disabled={busy}
-                >
-                  Añadir
-                </button>
-              </div>
-              <ul className="space-y-2">
-                {tokens.map((token) => {
-                  const form = tokenForms[token.address] ?? { to: "", amount: "" };
-                  return (
-                    <li
-                      key={token.address}
-                      className="rounded-xl border p-3 bg-slate-50 space-y-2"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="font-semibold">{token.symbol}</div>
-                          <div className="text-xs text-slate-500">
-                            <Address value={token.address} />
-                          </div>
-                        </div>
-                        <div className="font-mono text-right">{token.balance}</div>
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        <input
-                          className="col-span-2 p-2 rounded-lg border"
-                          placeholder="0x destinatario"
-                          value={form.to}
-                          onChange={(e) =>
-                            setTokenForms((prev) => {
-                              const existing = prev[token.address] ?? {
-                                to: "",
-                                amount: "",
-                              };
-                              return {
-                                ...prev,
-                                [token.address]: {
-                                  ...existing,
-                                  to: e.target.value,
-                                },
-                              };
-                            })
-                          }
-                        />
-                        <input
-                          className="col-span-1 p-2 rounded-lg border"
-                          placeholder="Cantidad"
-                          value={form.amount}
-                          onChange={(e) =>
-                            setTokenForms((prev) => {
-                              const existing = prev[token.address] ?? {
-                                to: "",
-                                amount: "",
-                              };
-                              return {
-                                ...prev,
-                                [token.address]: {
-                                  ...existing,
-                                  amount: e.target.value,
-                                },
-                              };
-                            })
-                          }
-                        />
-                      </div>
-                      <div>
-                        <button
-                          className="px-3 py-2 rounded-xl bg-blue-600 text-white disabled:opacity-50"
-                          disabled={!wallet || !provider || busy}
-                          onClick={() => sendToken(token.address, form.to, form.amount)}
-                          type="button"
-                        >
-                          Enviar {token.symbol}
-                        </button>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-
+          <div className="grid gap-6 md:grid-cols-2">
+            <TokenManager
+              tokenAddressInput={tokenAddr}
+              onTokenAddressChange={setTokenAddr}
+              onAddToken={handleAddToken}
+              tokens={tokens}
+              forms={tokenForms}
+              onFormChange={handleTokenFormChange}
+              onSendToken={handleSendToken}
+              disabled={!wallet || !provider || busy}
+            />
             <div className="space-y-2">
               <h3 className="font-semibold">Historial reciente</h3>
               {!explorer && (
@@ -1143,52 +703,14 @@ export default function App(): JSX.Element {
                   Configura el explorador para ver transacciones
                 </div>
               )}
-              <ul className="space-y-2 max-h-[400px] overflow-auto pr-1">
-                {txs.map((tx) => (
-                  <li key={tx.hash} className="rounded-xl border p-3 bg-white space-y-1">
-                    <div className="flex items-center justify-between">
-                      <div className="font-mono text-xs">{`${tx.hash.slice(0, 12)}…`}</div>
-                      <div className="text-xs uppercase tracking-wide">
-                        {tx.method || tx.type || "TX"}
-                      </div>
-                    </div>
-                    <div className="text-sm">
-                      De <Address value={(tx.from as any)?.hash || (tx.from as string)} /> a{' '}
-                      <Address value={(tx.to as any)?.hash || (tx.to as string)} />
-                    </div>
-                    <div className="text-xs text-slate-500">
-                      Bloque #{tx.block_number ?? "?"} •{' '}
-                      {tx.timestamp
-                        ? new Date(tx.timestamp * 1000).toLocaleString()
-                        : "sin fecha"}
-                    </div>
-                    {explorer && (
-                      <a
-                        className="text-xs text-blue-600"
-                        href={`${explorer.replace(/\/$/, "")}/tx/${tx.hash}`}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        Ver en Blockscout ↗
-                      </a>
-                    )}
-                  </li>
-                ))}
-                {txs.length === 0 && (
-                  <li className="text-sm text-slate-500">
-                    No hay transacciones recientes o el explorador no respondió.
-                  </li>
-                )}
-              </ul>
+              <TransactionHistory explorer={explorer} transactions={txs} />
             </div>
           </div>
         </Section>
 
-        <footer className="text-xs text-slate-500 pt-6">
-          <p className="text-center">
-            Scolcoin Copyright © 2018 - 2026. All rights reserved. Creado por
-            Blockchain Technology S.A.S.
-          </p>
+        <footer className="pt-6 text-center text-xs text-slate-500">
+          Scolcoin Copyright © 2018 - 2026. All rights reserved. Creado por Blockchain
+          Technology S.A.S.
         </footer>
       </div>
     </div>
