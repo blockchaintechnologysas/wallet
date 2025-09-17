@@ -344,7 +344,7 @@ export default function App(): JSX.Element {
         };
         const bundleStr = JSON.stringify(bundle, null, 2);
         localStorage.setItem("scol_keystore_json", bundleStr);
-        const blob = new Blob([bundleStr], { type: "application/json" });
+        const blob = new Blob([encJson], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
