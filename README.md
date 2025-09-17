@@ -117,7 +117,7 @@ Si quieres publicar la billetera en un servidor Linux (por ejemplo Ubuntu
 
 ```bash
 sudo mkdir -p /opt/geth-wallet
-sudo chown "$USER":"$USER" /opt/geth-wallet
+sudo chown wallet:wallet /opt/geth-wallet
 git clone https://github.com/blockchaintechnologysas/wallet.git /opt/geth-wallet
 cd /opt/geth-wallet
 npm install
